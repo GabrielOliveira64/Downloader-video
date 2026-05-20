@@ -27,8 +27,14 @@ config = load_config()
 # ─── Estado global ─────────────────────────────────────────────────────────────
 log_queue = queue.Queue()
 is_running = False
+stop_requested = False
 video_info = None
 available_formats = []
+
+import re as _re
+def strip_ansi(text):
+    """Remove códigos de escape ANSI de strings do yt-dlp"""
+    return _re.sub(r'\x1b\[[0-9;]*m', '', str(text)).strip()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CORES & FONTES
@@ -356,11 +362,22 @@ progress_label.pack(anchor=tk.W)
 
 tk.Frame(inner_dl, bg=BORDER, height=1).pack(fill=tk.X, pady=12)
 
-btn_download = tk.Button(inner_dl, text="⬇  Iniciar Download", font=("Segoe UI", 12, "bold"),
+btn_row_dl = tk.Frame(inner_dl, bg=CARD)
+btn_row_dl.pack(fill=tk.X)
+
+btn_download = tk.Button(btn_row_dl, text="⬇  Iniciar Download", font=("Segoe UI", 12, "bold"),
                           bg=ACCENT, fg="white", relief="flat", cursor="hand2",
                           activebackground=ACCENT2, activeforeground="white",
                           padx=30, pady=12, bd=0)
-btn_download.pack(fill=tk.X)
+btn_download.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+tk.Frame(btn_row_dl, bg=CARD, width=8).pack(side=tk.LEFT)
+
+btn_stop = tk.Button(btn_row_dl, text="⏹  Parar", font=("Segoe UI", 12, "bold"),
+                      bg=CARD2, fg=SUBTEXT, relief="flat", cursor="hand2",
+                      activebackground="#3A1A1A", activeforeground=DANGER,
+                      padx=20, pady=12, bd=0, state="disabled")
+btn_stop.pack(side=tk.LEFT)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SEÇÃO 6 — LOG
@@ -543,15 +560,43 @@ def build_ydl_opts():
     tmpl = os.path.join(dest, "%(title)s.%(ext)s")
 
     def hook(d):
+        if stop_requested:
+            raise Exception("Download cancelado pelo usuário.")
         if d["status"] == "downloading":
-            pct_str = d.get("_percent_str", "0%").strip().replace("%", "")
-            try:
-                pct = float(pct_str)
-            except:
-                pct = 0
-            speed = d.get("_speed_str", "").strip()
-            eta   = d.get("_eta_str", "").strip()
-            update_progress(pct, f"Baixando… {pct:.1f}%  |  {speed}  |  ETA {eta}")
+            # Usar campos numéricos diretamente para evitar caracteres ANSI
+            downloaded = d.get("downloaded_bytes") or 0
+            total      = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            speed_b    = d.get("speed") or 0
+            eta_s      = d.get("eta")
+
+            if total > 0:
+                pct = (downloaded / total) * 100
+            else:
+                # fallback: tentar parsear _percent_str limpando ANSI
+                raw = strip_ansi(d.get("_percent_str", "0%")).replace("%", "")
+                try:
+                    pct = float(raw)
+                except:
+                    pct = 0
+
+            # Formatar velocidade
+            if speed_b >= 1_048_576:
+                speed_str = f"{speed_b/1_048_576:.1f} MB/s"
+            elif speed_b >= 1024:
+                speed_str = f"{speed_b/1024:.0f} KB/s"
+            elif speed_b > 0:
+                speed_str = f"{speed_b:.0f} B/s"
+            else:
+                speed_str = "–"
+
+            # Formatar ETA
+            if eta_s is not None:
+                m, s = divmod(int(eta_s), 60)
+                eta_str = f"{m}m{s:02d}s" if m else f"{s}s"
+            else:
+                eta_str = "–"
+
+            update_progress(pct, f"Baixando…  {pct:.1f}%  |  {speed_str}  |  ETA {eta_str}")
         elif d["status"] == "finished":
             update_progress(100, "Finalizando…")
 
@@ -594,8 +639,14 @@ def build_ydl_opts():
 
     return opts
 
+def parar_download():
+    global stop_requested
+    stop_requested = True
+    log("⏹  Cancelamento solicitado…", "warn")
+    root.after(0, lambda: btn_stop.configure(state="disabled", text="Cancelando…"))
+
 def iniciar_download():
-    global is_running
+    global is_running, stop_requested
     if is_running:
         messagebox.showwarning("Aviso", "Já há um download em andamento.")
         return
@@ -605,29 +656,43 @@ def iniciar_download():
 
     url = entry_url.get().strip()
     is_running = True
+    stop_requested = False
     btn_download.configure(state="disabled", text="⏳  Baixando…")
+    btn_stop.configure(state="normal", text="⏹  Parar", fg=DANGER, bg="#2A1010")
     progress_var.set(0)
     progress_label.configure(text="Iniciando…")
     log("🚀 Iniciando download…", "info")
 
     def _run():
-        global is_running
+        global is_running, stop_requested
         try:
             opts = build_ydl_opts()
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
-            log(f"✅ Download concluído! Salvo em: {config['download_path']}", "success")
-            root.after(0, lambda: progress_label.configure(text="Concluído!"))
+            if not stop_requested:
+                log(f"✅ Download concluído! Salvo em: {config['download_path']}", "success")
+                root.after(0, lambda: progress_label.configure(text="✅ Concluído!"))
+                root.after(0, lambda: progress_var.set(100))
         except Exception as e:
-            log(f"❌ Erro: {e}", "error")
-            root.after(0, lambda: progress_label.configure(text="Erro no download."))
+            err = str(e)
+            if stop_requested or "cancelado" in err.lower():
+                log("⏹  Download cancelado.", "warn")
+                root.after(0, lambda: progress_label.configure(text="Cancelado."))
+                root.after(0, lambda: progress_var.set(0))
+            else:
+                log(f"❌ Erro: {err}", "error")
+                root.after(0, lambda: progress_label.configure(text="Erro no download."))
         finally:
             is_running = False
+            stop_requested = False
             root.after(0, lambda: btn_download.configure(state="normal", text="⬇  Iniciar Download"))
+            root.after(0, lambda: btn_stop.configure(state="disabled", text="⏹  Parar",
+                                                      fg=SUBTEXT, bg=CARD2))
 
     threading.Thread(target=_run, daemon=True).start()
 
 btn_download.configure(command=iniciar_download)
+btn_stop.configure(command=parar_download)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # JANELA DE CONFIGURAÇÕES
