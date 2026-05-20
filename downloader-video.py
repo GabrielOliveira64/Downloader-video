@@ -30,6 +30,7 @@ is_running = False
 stop_requested = False
 video_info = None
 available_formats = []
+analyzed_url = None   # URL que foi efetivamente analisada com sucesso
 
 import re as _re
 def strip_ansi(text):
@@ -194,6 +195,14 @@ btn_fetch = tk.Button(url_row, text="Analisar  →", font=FONT_BOLD,
                       activebackground=ACCENT2, activeforeground="white",
                       padx=18, pady=0, bd=0)
 btn_fetch.pack(side=tk.LEFT, ipady=9)
+
+tk.Frame(url_row, bg=CARD, width=6).pack(side=tk.LEFT)
+
+btn_cancel_fetch = tk.Button(url_row, text="✕", font=FONT_BOLD,
+                              bg=CARD2, fg=SUBTEXT, relief="flat", cursor="hand2",
+                              activebackground="#3A1010", activeforeground=DANGER,
+                              padx=10, pady=0, bd=0, state="disabled")
+btn_cancel_fetch.pack(side=tk.LEFT, ipady=9)
 
 # Badge de plataforma detectada (aparece ao digitar/colar)
 platform_badge_frame = tk.Frame(inner_url, bg=CARD)
@@ -435,64 +444,84 @@ btn_stop = tk.Button(btn_row_dl, text="⏹  Parar", font=("Segoe UI", 12, "bold"
 btn_stop.pack(side=tk.LEFT)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SEÇÃO 6 — LOG
+# SEÇÃO 6 — LOG (removido da interface — log agora é silencioso/interno)
 # ══════════════════════════════════════════════════════════════════════════════
+# Widget oculto para manter compatibilidade com chamadas log() existentes
 sec_log = card(scroll_frame)
-# não empacotado ainda
+# não empacotado — invisível
 
-inner_log = tk.Frame(sec_log, bg=CARD, padx=20, pady=16)
-inner_log.pack(fill=tk.X)
-
-log_header = tk.Frame(inner_log, bg=CARD)
-log_header.pack(fill=tk.X, pady=(0, 8))
-
-label(log_header, "Log do Processo", font=FONT_BOLD, fg=SUBTEXT).pack(side=tk.LEFT)
-
-btn_clear_log = tk.Button(log_header, text="Limpar", font=("Segoe UI", 9),
-                           bg=CARD2, fg=SUBTEXT, relief="flat", cursor="hand2",
-                           activebackground=BORDER, activeforeground=TEXT,
-                           padx=10, pady=3, bd=0)
-btn_clear_log.pack(side=tk.RIGHT)
-
-log_text = tk.Text(inner_log, wrap=tk.WORD, font=FONT_MONO, bg="#0A0A0A",
-                   fg="#CCCCCC", relief="flat", state="disabled",
-                   height=10, insertbackground=TEXT,
-                   highlightthickness=1, highlightbackground=BORDER)
-log_text.pack(fill=tk.X)
-
-log_text.tag_configure("success", foreground=SUCCESS)
-log_text.tag_configure("error",   foreground=DANGER)
-log_text.tag_configure("warn",    foreground=WARNING)
-log_text.tag_configure("info",    foreground="#4FC3F7")
-log_text.tag_configure("normal",  foreground="#CCCCCC")
+log_text = tk.Text(sec_log, state="disabled")   # nunca exibido
 
 # Rodapé
 tk.Frame(scroll_frame, bg=BG, height=20).pack()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LÓGICA — LOG
+# LÓGICA — LOG (silencioso — apenas console interno)
 # ══════════════════════════════════════════════════════════════════════════════
 def log(msg, tag="normal"):
-    def _do():
-        log_text.config(state="normal")
-        log_text.insert(tk.END, msg + "\n", tag)
-        log_text.see(tk.END)
-        log_text.config(state="disabled")
-    root.after(0, _do)
-
-def clear_log():
-    log_text.config(state="normal")
-    log_text.delete("1.0", tk.END)
-    log_text.config(state="disabled")
-
-btn_clear_log.configure(command=clear_log)
+    # Sem UI — apenas imprime no console para debug
+    print(f"[{tag.upper()}] {msg}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LÓGICA — ANALISAR VÍDEO
 # ══════════════════════════════════════════════════════════════════════════════
 def show_sections():
-    for sec in (sec_info, sec_type, sec_fmt, sec_dl, sec_log):
+    for sec in (sec_info, sec_type, sec_fmt, sec_dl):
         sec.pack(fill=tk.X, padx=30, pady=(0, 12))
+
+def popup_erro(titulo, mensagem):
+    """Pop-up modal de erro com botão OK estilizado."""
+    win = tk.Toplevel(root)
+    win.title(titulo)
+    win.configure(bg=BG)
+    win.resizable(False, False)
+    win.grab_set()
+
+    win.update_idletasks()
+    w, h = 420, 220
+    wx = root.winfo_x() + (root.winfo_width()  - w) // 2
+    wy = root.winfo_y() + (root.winfo_height() - h) // 2
+    win.geometry(f"{w}x{h}+{wx}+{wy}")
+
+    p = tk.Frame(win, bg=BG, padx=30, pady=28)
+    p.pack(fill=tk.BOTH, expand=True)
+
+    # Ícone + título
+    top_row = tk.Frame(p, bg=BG)
+    top_row.pack(fill=tk.X)
+    icon_box = tk.Frame(top_row, bg=DANGER, width=32, height=32)
+    icon_box.pack(side=tk.LEFT)
+    icon_box.pack_propagate(False)
+    tk.Label(icon_box, text="✕", font=("Segoe UI", 14, "bold"),
+             fg="white", bg=DANGER).place(relx=.5, rely=.5, anchor="center")
+    tk.Frame(top_row, bg=BG, width=12).pack(side=tk.LEFT)
+    tk.Label(top_row, text=titulo, font=FONT_LG, fg=TEXT,
+             bg=BG).pack(side=tk.LEFT, anchor="center")
+
+    tk.Frame(p, bg=BORDER, height=1).pack(fill=tk.X, pady=14)
+
+    tk.Label(p, text=mensagem, font=FONT_MAIN, fg=SUBTEXT, bg=BG,
+             wraplength=360, justify="left").pack(anchor=tk.W)
+
+    tk.Frame(p, bg=BG, height=16).pack()
+
+    tk.Button(p, text="OK", font=FONT_BOLD,
+              bg=ACCENT, fg="white", relief="flat", cursor="hand2",
+              activebackground=ACCENT2, activeforeground="white",
+              padx=32, pady=8, bd=0,
+              command=win.destroy).pack(anchor=tk.E)
+
+fetch_cancel_event = threading.Event()
+
+def cancel_fetch():
+    fetch_cancel_event.set()
+    global video_info, analyzed_url
+    video_info = None
+    analyzed_url = None
+    btn_fetch.configure(state="normal", text="Analisar  →")
+    btn_cancel_fetch.configure(state="disabled", fg=SUBTEXT, bg=CARD2)
+
+btn_cancel_fetch.configure(command=cancel_fetch)
 
 def fetch_info():
     global video_info, available_formats
@@ -512,40 +541,86 @@ def fetch_info():
     else:
         log("🌐 Plataforma: genérica (yt-dlp)", "info")
 
+    fetch_cancel_event.clear()
     btn_fetch.configure(state="disabled", text="Analisando...")
+    btn_cancel_fetch.configure(state="normal", fg=DANGER, bg="#2A1010")
     log("🔍 Analisando vídeo...", "info")
 
+    result_box = [None]
+    done_event = threading.Event()
+
     def _fetch():
-        global video_info, available_formats
         try:
             ydl_opts = {
                 "quiet": True,
                 "no_warnings": True,
                 "skip_download": True,
-                "socket_timeout": 20,
+                "socket_timeout": 8,
+                "extractor_retries": 1,
             }
-
-            # TikTok precisa de user-agent mobile para não travar na análise
             if plat_key == "tiktok":
+                # User-agent do app Android do TikTok — mais aceito que browser
                 ydl_opts["http_headers"] = {
                     "User-Agent": (
-                        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-                        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
-                        "Mobile/15E148 Safari/604.1"
+                        "com.zhiliaoapp.musically/2022600030 "
+                        "(Linux; U; Android 12; en_US; Pixel 6; "
+                        "Build/SQ3A.220705.003.A1; Cronet/58.0.2991.0)"
                     ),
                     "Referer": "https://www.tiktok.com/",
                 }
-                # Não forçar format aqui — só no download
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                video_info = info
-                available_formats = info.get("formats", [])
-
-            root.after(0, on_fetch_success)
+            result_box[0] = info
         except Exception as e:
-            root.after(0, lambda: on_fetch_error(str(e)))
+            result_box[0] = e
+        finally:
+            done_event.set()
 
     threading.Thread(target=_fetch, daemon=True).start()
+
+    # TikTok pode precisar de um pouco mais de tempo
+    TIMEOUT = 30 if plat_key == "tiktok" else 10
+
+    def _reset_buttons():
+        btn_fetch.configure(state="normal", text="Analisar  →")
+        btn_cancel_fetch.configure(state="disabled", fg=SUBTEXT, bg=CARD2)
+
+    def _watch(n):
+        global video_info, available_formats, analyzed_url
+        interval = 200  # ms
+        max_ticks = (TIMEOUT * 1000) // interval
+
+        if fetch_cancel_event.is_set():
+            _reset_buttons()
+            return
+        if done_event.is_set():
+            _reset_buttons()
+            result = result_box[0]
+            if isinstance(result, Exception):
+                on_fetch_error(str(result))
+            elif result is None:
+                popup_erro("Erro", "Nenhuma informação retornada pelo servidor.")
+            else:
+                video_info = result
+                available_formats = result.get("formats", [])
+                analyzed_url = url
+                on_fetch_success()
+            return
+        if n >= max_ticks:
+            fetch_cancel_event.set()
+            _reset_buttons()
+            video_info = None
+            analyzed_url = None
+            popup_erro(
+                "Tempo esgotado",
+                f"Não foi possível obter as informações do vídeo.\n\n"
+                f"O servidor demorou mais de {TIMEOUT} segundos para responder.\n"
+                f"Verifique a URL e tente novamente."
+            )
+            return
+        root.after(interval, _watch, n + 1)
+
+    root.after(200, _watch, 0)
 
 def on_fetch_success():
     global video_info
@@ -553,7 +628,7 @@ def on_fetch_success():
     info = video_info
     title    = info.get("title", "Sem título")
     duration = info.get("duration", 0)
-    mins, secs = divmod(int(duration), 60)
+    mins, secs = divmod(int(duration or 0), 60)
     hrs,  mins = divmod(mins, 60)
 
     info_title_var.set(title[:70] + ("…" if len(title) > 70 else ""))
@@ -619,8 +694,7 @@ def on_fetch_success():
     btn_fetch.configure(state="normal", text="Analisar  →")
 
 def on_fetch_error(err):
-    log(f"❌ Erro ao analisar: {err}", "error")
-    btn_fetch.configure(state="normal", text="Analisar  →")
+    popup_erro("Erro ao analisar", f"Não foi possível obter informações do vídeo.\n\n{err[:200]}")
 
 btn_fetch.configure(command=fetch_info)
 entry_url.bind("<Return>", lambda e: fetch_info())
@@ -763,11 +837,12 @@ def iniciar_download():
     if is_running:
         messagebox.showwarning("Aviso", "Já há um download em andamento.")
         return
-    if video_info is None:
+    if video_info is None or analyzed_url is None:
         messagebox.showwarning("Aviso", "Analise um vídeo primeiro.")
         return
 
-    url = entry_url.get().strip()
+    # Usa sempre a URL que foi analisada, não o que está no campo agora
+    url = analyzed_url
     is_running = True
     stop_requested = False
     btn_download.configure(state="disabled", text="⏳  Baixando…")
