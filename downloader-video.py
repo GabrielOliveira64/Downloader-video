@@ -36,6 +36,35 @@ def strip_ansi(text):
     """Remove códigos de escape ANSI de strings do yt-dlp"""
     return _re.sub(r'\x1b\[[0-9;]*m', '', str(text)).strip()
 
+# ─── Detecção de plataforma ────────────────────────────────────────────────────
+detected_platform = {"name": None, "icon": None, "color": None}
+
+# IMPORTANTE: ordem importa — Reddit antes do Twitter para evitar falsos positivos
+PLATFORMS = {
+    "youtube":   {"domains": ["youtube.com", "youtu.be"],              "icon": "▶", "color": "#FF0033", "label": "YouTube"},
+    "tiktok":    {"domains": ["tiktok.com"],                           "icon": "♪", "color": "#69C9D0", "label": "TikTok"},
+    "instagram": {"domains": ["instagram.com", "instagr.am"],          "icon": "◈", "color": "#E1306C", "label": "Instagram"},
+    "reddit":    {"domains": ["reddit.com", "v.redd.it", "redd.it"],   "icon": "◆", "color": "#FF4500", "label": "Reddit"},
+    "twitter":   {"domains": ["twitter.com", "x.com"],                 "icon": "𝕏", "color": "#1DA1F2", "label": "X / Twitter"},
+    "facebook":  {"domains": ["facebook.com", "fb.watch", "fb.com"],   "icon": "f", "color": "#1877F2", "label": "Facebook"},
+    "twitch":    {"domains": ["twitch.tv"],                             "icon": "◉", "color": "#9146FF", "label": "Twitch"},
+    "vimeo":     {"domains": ["vimeo.com"],                             "icon": "▷", "color": "#1AB7EA", "label": "Vimeo"},
+}
+
+def detect_platform(url):
+    """Retorna chave da plataforma ou None. Compara domínio exato para evitar colisões."""
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc.lower().lstrip("www.")
+    except Exception:
+        host = url.lower()
+    for key, info in PLATFORMS.items():
+        for domain in info["domains"]:
+            # corresponde ao domínio exato ou subdomínio (ex: vm.tiktok.com)
+            if host == domain or host.endswith("." + domain):
+                return key
+    return None
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CORES & FONTES
 # ══════════════════════════════════════════════════════════════════════════════
@@ -60,7 +89,7 @@ FONT_MONO = ("Consolas", 9)
 # JANELA PRINCIPAL
 # ══════════════════════════════════════════════════════════════════════════════
 root = tk.Tk()
-root.title("YT Downloader")
+root.title("Video Downloader")
 root.geometry("760x820")
 root.minsize(720, 700)
 root.configure(bg=BG)
@@ -125,7 +154,7 @@ logo_box.pack_propagate(False)
 tk.Label(logo_box, text="▶", font=("Segoe UI", 14, "bold"), fg="white", bg=ACCENT).place(relx=.5, rely=.5, anchor="center")
 
 tk.Frame(logo_row, bg=BG, width=10).pack(side=tk.LEFT)
-label(logo_row, "YT Downloader", font=FONT_XL, fg=TEXT).pack(side=tk.LEFT, anchor="center")
+label(logo_row, "Video Downloader", font=FONT_XL, fg=TEXT).pack(side=tk.LEFT, anchor="center")
 
 # Botão ⚙ settings — canto direito
 btn_settings = tk.Button(logo_row, text="⚙  Configurações", font=FONT_MAIN,
@@ -134,7 +163,7 @@ btn_settings = tk.Button(logo_row, text="⚙  Configurações", font=FONT_MAIN,
                           padx=12, pady=6, bd=0)
 btn_settings.pack(side=tk.RIGHT, anchor="center")
 
-label(header, "Baixe vídeos, áudios e legendas do YouTube com facilidade",
+label(header, "Baixe vídeos, áudios e legendas com facilidade",
       fg=SUBTEXT).pack(anchor=tk.W, pady=(4, 0))
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -165,6 +194,32 @@ btn_fetch = tk.Button(url_row, text="Analisar  →", font=FONT_BOLD,
                       activebackground=ACCENT2, activeforeground="white",
                       padx=18, pady=0, bd=0)
 btn_fetch.pack(side=tk.LEFT, ipady=9)
+
+# Badge de plataforma detectada (aparece ao digitar/colar)
+platform_badge_frame = tk.Frame(inner_url, bg=CARD)
+platform_badge_frame.pack(anchor=tk.W, pady=(6, 0))
+
+platform_icon_lbl  = tk.Label(platform_badge_frame, text="", font=("Segoe UI", 9, "bold"),
+                               fg="white", bg=CARD, padx=6, pady=2)
+platform_name_lbl  = tk.Label(platform_badge_frame, text="", font=("Segoe UI", 9),
+                               fg=SUBTEXT, bg=CARD)
+
+def on_url_change(*args):
+    url = entry_url.get().strip()
+    key = detect_platform(url)
+    if key:
+        p = PLATFORMS[key]
+        platform_icon_lbl.configure(text=f" {p['icon']}  {p['label']} ", bg=p["color"])
+        platform_name_lbl.configure(text="detectado")
+        platform_icon_lbl.pack(side=tk.LEFT)
+        platform_name_lbl.pack(side=tk.LEFT, padx=(6, 0))
+    else:
+        platform_icon_lbl.pack_forget()
+        platform_name_lbl.pack_forget()
+
+url_var = tk.StringVar()
+entry_url.configure(textvariable=url_var)
+url_var.trace_add("write", on_url_change)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SEÇÃO 2 — INFO DO VÍDEO (oculta até analisar)
@@ -450,13 +505,37 @@ def fetch_info():
         messagebox.showwarning("Aviso", "A URL deve começar com http:// ou https://")
         return
 
+    plat_key = detect_platform(url)
+    if plat_key:
+        plat = PLATFORMS[plat_key]
+        log(f"🌐 Plataforma detectada: {plat['label']}", "info")
+    else:
+        log("🌐 Plataforma: genérica (yt-dlp)", "info")
+
     btn_fetch.configure(state="disabled", text="Analisando...")
     log("🔍 Analisando vídeo...", "info")
 
     def _fetch():
         global video_info, available_formats
         try:
-            ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "socket_timeout": 20,
+            }
+
+            # TikTok precisa de user-agent mobile para não travar na análise
+            if plat_key == "tiktok":
+                ydl_opts["http_headers"] = {
+                    "User-Agent": (
+                        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+                        "Mobile/15E148 Safari/604.1"
+                    ),
+                    "Referer": "https://www.tiktok.com/",
+                }
+                # Não forçar format aqui — só no download
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 video_info = info
@@ -558,12 +637,13 @@ def build_ydl_opts():
     t    = download_type.get()
     dest = config["download_path"]
     tmpl = os.path.join(dest, "%(title)s.%(ext)s")
+    url  = entry_url.get().strip()
+    plat_key = detect_platform(url)
 
     def hook(d):
         if stop_requested:
             raise Exception("Download cancelado pelo usuário.")
         if d["status"] == "downloading":
-            # Usar campos numéricos diretamente para evitar caracteres ANSI
             downloaded = d.get("downloaded_bytes") or 0
             total      = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             speed_b    = d.get("speed") or 0
@@ -572,14 +652,12 @@ def build_ydl_opts():
             if total > 0:
                 pct = (downloaded / total) * 100
             else:
-                # fallback: tentar parsear _percent_str limpando ANSI
                 raw = strip_ansi(d.get("_percent_str", "0%")).replace("%", "")
                 try:
                     pct = float(raw)
                 except:
                     pct = 0
 
-            # Formatar velocidade
             if speed_b >= 1_048_576:
                 speed_str = f"{speed_b/1_048_576:.1f} MB/s"
             elif speed_b >= 1024:
@@ -589,7 +667,6 @@ def build_ydl_opts():
             else:
                 speed_str = "–"
 
-            # Formatar ETA
             if eta_s is not None:
                 m, s = divmod(int(eta_s), 60)
                 eta_str = f"{m}m{s:02d}s" if m else f"{s}s"
@@ -608,18 +685,55 @@ def build_ydl_opts():
         "socket_timeout": 30,
     }
 
+    # ── Opções específicas por plataforma ──────────────────────────────────────
+    if plat_key == "tiktok":
+        # User-agent mobile obrigatório para o TikTok não bloquear
+        opts["http_headers"] = {
+            "User-Agent": (
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+                "Mobile/15E148 Safari/604.1"
+            ),
+            "Referer": "https://www.tiktok.com/",
+        }
+        if t == "video":
+            # Formatos sem marca d'água: h264 direto (play_addr) tem logo;
+            # download_addr é o stream limpo do servidor TikTok
+            opts["format"] = (
+                "download_addr-0"          # sem watermark (quando disponível)
+                "/download_addr"
+                "/h264"
+                "/bestvideo+bestaudio"
+                "/best"
+            )
+            opts["merge_output_format"] = "mp4"
+            log("🎵 TikTok: tentando baixar sem marca d'água…", "info")
+            return opts
+        # áudio/legenda cai no fluxo genérico abaixo
+
+    elif plat_key == "instagram":
+        if t == "video":
+            opts["format"] = "best"
+            opts["merge_output_format"] = "mp4"
+            log("📷 Instagram: baixando melhor qualidade disponível…", "info")
+            return opts
+
+    # ── Fluxo genérico (YouTube, Twitter, Vimeo, etc.) ────────────────────────
     if t == "video":
         res = res_var.get().replace("p", "")
         fmt = vfmt_var.get()
         if res.isdigit():
-            opts["format"] = f"bestvideo[height<={res}][ext={fmt}]+bestaudio/bestvideo[height<={res}]+bestaudio/best"
+            opts["format"] = (
+                f"bestvideo[height<={res}][ext={fmt}]+bestaudio"
+                f"/bestvideo[height<={res}]+bestaudio/best"
+            )
         else:
             opts["format"] = "bestvideo+bestaudio/best"
         opts["merge_output_format"] = fmt if fmt else "mp4"
 
     elif t == "audio":
         afmt = afmt_var.get()
-        opts["format"]            = "bestaudio/best"
+        opts["format"]       = "bestaudio/best"
         opts["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": afmt,
@@ -629,13 +743,12 @@ def build_ydl_opts():
     else:  # subtitle
         lang = slang_var.get().replace(" (auto)", "")
         sfmt = sfmt_var.get()
-        opts["skip_download"]          = True
-        opts["writesubtitles"]         = True
-        opts["writeautomaticsub"]      = True
-        opts["subtitleslangs"]         = [lang]
-        opts["subtitlesformat"]        = sfmt
-        opts["postprocessors"]         = [{"key": "FFmpegSubtitlesConvertor",
-                                           "format": sfmt}]
+        opts["skip_download"]     = True
+        opts["writesubtitles"]    = True
+        opts["writeautomaticsub"] = True
+        opts["subtitleslangs"]    = [lang]
+        opts["subtitlesformat"]   = sfmt
+        opts["postprocessors"]    = [{"key": "FFmpegSubtitlesConvertor", "format": sfmt}]
 
     return opts
 
