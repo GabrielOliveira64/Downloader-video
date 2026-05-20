@@ -600,6 +600,7 @@ def fetch_info():
                 on_fetch_error(str(result))
             elif result is None:
                 popup_erro("Erro", "Nenhuma informação retornada pelo servidor.")
+                reset_interface()
             else:
                 video_info = result
                 available_formats = result.get("formats", [])
@@ -617,6 +618,7 @@ def fetch_info():
                 f"O servidor demorou mais de {TIMEOUT} segundos para responder.\n"
                 f"Verifique a URL e tente novamente."
             )
+            reset_interface()
             return
         root.after(interval, _watch, n + 1)
 
@@ -693,8 +695,21 @@ def on_fetch_success():
     log(f"✅ Vídeo encontrado: {info_title_var.get()}", "success")
     btn_fetch.configure(state="normal", text="Analisar  →")
 
+def reset_interface():
+    """Volta a interface ao estado inicial: esconde seções e limpa o input."""
+    global video_info, available_formats, analyzed_url
+    video_info = None
+    available_formats = []
+    analyzed_url = None
+    entry_url.delete(0, tk.END)
+    for sec in (sec_info, sec_type, sec_fmt, sec_dl):
+        sec.pack_forget()
+    progress_var.set(0)
+    progress_label.configure(text="Aguardando...")
+
 def on_fetch_error(err):
-    popup_erro("Erro ao analisar", f"Não foi possível obter informações do vídeo.\n\n{err[:200]}")
+    popup_erro("Não foi possível carregar", f"Não foi possível obter informações do vídeo.\n\n{err[:200]}")
+    reset_interface()
 
 btn_fetch.configure(command=fetch_info)
 entry_url.bind("<Return>", lambda e: fetch_info())
@@ -702,6 +717,66 @@ entry_url.bind("<Return>", lambda e: fetch_info())
 # ══════════════════════════════════════════════════════════════════════════════
 # LÓGICA — DOWNLOAD
 # ══════════════════════════════════════════════════════════════════════════════
+def popup_sucesso(pasta):
+    """Pop-up de download concluído com botão para abrir a pasta."""
+    win = tk.Toplevel(root)
+    win.title("Download concluído")
+    win.configure(bg=BG)
+    win.resizable(False, False)
+    win.grab_set()
+
+    win.update_idletasks()
+    w, h = 420, 230
+    wx = root.winfo_x() + (root.winfo_width()  - w) // 2
+    wy = root.winfo_y() + (root.winfo_height() - h) // 2
+    win.geometry(f"{w}x{h}+{wx}+{wy}")
+
+    p = tk.Frame(win, bg=BG, padx=30, pady=28)
+    p.pack(fill=tk.BOTH, expand=True)
+
+    top_row = tk.Frame(p, bg=BG)
+    top_row.pack(fill=tk.X)
+    icon_box = tk.Frame(top_row, bg=SUCCESS, width=32, height=32)
+    icon_box.pack(side=tk.LEFT)
+    icon_box.pack_propagate(False)
+    tk.Label(icon_box, text="✓", font=("Segoe UI", 14, "bold"),
+             fg="white", bg=SUCCESS).place(relx=.5, rely=.5, anchor="center")
+    tk.Frame(top_row, bg=BG, width=12).pack(side=tk.LEFT)
+    tk.Label(top_row, text="Download concluído!", font=FONT_LG, fg=TEXT,
+             bg=BG).pack(side=tk.LEFT, anchor="center")
+
+    tk.Frame(p, bg=BORDER, height=1).pack(fill=tk.X, pady=14)
+
+    tk.Label(p, text=f"Arquivo salvo em:\n{pasta}", font=FONT_MAIN, fg=SUBTEXT,
+             bg=BG, wraplength=360, justify="left").pack(anchor=tk.W)
+
+    tk.Frame(p, bg=BG, height=16).pack()
+
+    btn_row = tk.Frame(p, bg=BG)
+    btn_row.pack(fill=tk.X)
+
+    def abrir_pasta():
+        import subprocess, sys
+        if sys.platform == "win32":
+            os.startfile(pasta)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", pasta])
+        else:
+            subprocess.Popen(["xdg-open", pasta])
+        win.destroy()
+
+    tk.Button(btn_row, text="Fechar", font=FONT_MAIN,
+              bg=CARD2, fg=SUBTEXT, relief="flat", cursor="hand2",
+              activebackground=BORDER, activeforeground=TEXT,
+              padx=20, pady=8, bd=0,
+              command=win.destroy).pack(side=tk.RIGHT, padx=(8, 0))
+
+    tk.Button(btn_row, text="📁  Abrir Pasta", font=FONT_BOLD,
+              bg=SUCCESS, fg="white", relief="flat", cursor="hand2",
+              activebackground="#00A87E", activeforeground="white",
+              padx=20, pady=8, bd=0,
+              command=abrir_pasta).pack(side=tk.RIGHT)
+
 def update_progress(pct, msg=""):
     root.after(0, lambda: progress_var.set(pct))
     if msg:
@@ -858,9 +933,10 @@ def iniciar_download():
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
             if not stop_requested:
-                log(f"✅ Download concluído! Salvo em: {config['download_path']}", "success")
+                pasta = config["download_path"]
                 root.after(0, lambda: progress_label.configure(text="✅ Concluído!"))
                 root.after(0, lambda: progress_var.set(100))
+                root.after(0, lambda: popup_sucesso(pasta))
         except Exception as e:
             err = str(e)
             if stop_requested or "cancelado" in err.lower():
